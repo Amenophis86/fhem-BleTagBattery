@@ -3,6 +3,9 @@
 #  (c) 2017 Copyright: Achim Winkler
 #  All rights reserved
 #
+#  Edit: by Amenophis86
+#  Added: BleTagBatteryInterval attr to set timer for checks by attr
+#
 ###############################################################################
 
 
@@ -12,7 +15,7 @@ use strict;
 use warnings;
 use Blocking;
 
-my $version = "0.0.3";
+my $version = "0.0.4";
 
 
 # Declare functions
@@ -43,6 +46,7 @@ sub BleTagBattery_Initialize($) {
     $hash->{AttrFn}     = "BleTagBattery_Attr";
     $hash->{AttrList}   = "disable:1 ".
                           "hciDevice:hci0,hci1,hci2 ".
+						  "BleTagBatteryInterval ".
                           $readingFnAttributes;
 
     $hash->{VERSION} = $version;
@@ -94,6 +98,7 @@ sub BleTagBattery_Undef($$) {
 sub BleTagBattery_Attr(@) {
     my ( $cmd, $name, $attrName, $attrVal ) = @_;
     my $hash                                = $defs{$name};
+	my $nextcheck;
 
 
     if ( $attrName eq "disable" ) {
@@ -108,7 +113,26 @@ sub BleTagBattery_Attr(@) {
             Log3 $name, 3, "Sub BleTagBattery_Attr ($name) - device enabled";
         }
     }
-
+	
+	if ( $attrName eq "BleTagBatteryInterval") {
+		if ( $cmd eq "set") {
+			Log3 $name, 3, "BleTagBattery_Attr ($name) - Interval set to $attrVal";
+			
+			$nextcheck = gettimeofday() + $attrVal + int(rand(30));
+			InternalTimer( $nextcheck , "BleTagBattery_stateRequestTimer", $hash, 1 );
+				
+			Log3 $name, 4, "Next check at: $nextcheck";
+		}
+		elsif ( $cmd eq "del") {
+			Log3 $name, 3, "BleTagBattery_Attr ($name) - Interval reset to 6h";
+			
+			$nextcheck = gettimeofday() + 21600 + int(rand(30));
+			InternalTimer( $nextcheck , "BleTagBattery_stateRequestTimer", $hash, 1 );
+		
+			Log3 $name, 4, "Next check at: $nextcheck";
+		}
+	}
+	
     return undef;
 }
 
@@ -133,6 +157,10 @@ sub BleTagBattery_stateRequest($) {
 sub BleTagBattery_stateRequestTimer($) {
     my $hash = shift;
     my $name = $hash->{NAME};
+	my $attr_timer = AttrVal( $name, "BleTagBatteryInterval", 0);
+	my $nextcheck;
+	
+	Log3 $name, 0, "Timer: $attr_timer";
 
 
     if ( !IsDisabled($name) ) {
@@ -143,8 +171,21 @@ sub BleTagBattery_stateRequestTimer($) {
         readingsSingleUpdate( $hash, "state", "disabled", 1 );
     }
     
-    InternalTimer( gettimeofday() + 21600 + int(rand(30)), "BleTagBattery_stateRequestTimer", $hash, 1 );
-
+	if ($attr_timer != 0)
+	{
+		$nextcheck = gettimeofday() + $attr_timer + int(rand(30));
+		InternalTimer( $nextcheck , "BleTagBattery_stateRequestTimer", $hash, 1 );
+				
+		Log3 $name, 4, "Next check at: $nextcheck -> attr"; 
+	}
+	else
+	{
+		$nextcheck = gettimeofday() + 21600 + int(rand(30));
+		InternalTimer( $nextcheck , "BleTagBattery_stateRequestTimer", $hash, 1 );
+		
+		Log3 $name, 4, "Next check at: $nextcheck -> normal";
+	}
+		
     Log3 $name, 5, "Sub BleTagBattery_stateRequestTimer ($name) - state request timer called";
     
     return undef;
